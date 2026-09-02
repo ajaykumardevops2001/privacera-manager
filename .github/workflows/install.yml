@@ -236,7 +236,7 @@ jobs:
         run: |
           echo "Installing additional dependencies..."
           sudo apt-get update
-          sudo apt-get install -y curl tar gzip wget openssl hostname sudo unzip python3 python3-venv
+          sudo apt-get install -y curl tar gzip wget openssl openssh-client hostname sudo unzip python3 python3-venv
           
           # Install AWS CLI for self-hosted runners
           echo "Installing AWS CLI..."
@@ -245,8 +245,7 @@ jobs:
           sudo ./aws/install
           aws --version
           
-          # Install Ansible in an isolated environment. Ubuntu 24.04 blocks
-          # system-wide pip installs (PEP 668).
+          # using venv because system pip is blocked
           ANSIBLE_VENV="${RUNNER_TEMP}/ansible-venv"
           python3 -m venv "${ANSIBLE_VENV}"
           "${ANSIBLE_VENV}/bin/python" -m pip install --upgrade pip
