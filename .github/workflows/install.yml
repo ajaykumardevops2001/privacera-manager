@@ -329,6 +329,26 @@ jobs:
 
           echo "Using configuration file: ${CONFIG_FILE}"
 
+      - name: Set Snowflake password
+        run: |
+          # do not hardcode password here
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config_file = Path("custom-vars/connectors/snowflake/test/vars.connector.snowflake.yml")
+          config = config_file.read_text()
+          placeholder = '"{SNOWFLAKE_PASSWORD}"'
+
+          if config.count(placeholder) != 2:
+              raise SystemExit("Snowflake password placeholders were not found")
+
+          config_file.write_text(
+              config.replace(placeholder, json.dumps(os.environ["SNOWFLAKE_PASSWORD"]))
+          )
+          PY
+
       - name: Run installation script
         run: |
           echo "Setting up Privacera Manager..."
