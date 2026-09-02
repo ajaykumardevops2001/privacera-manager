@@ -461,6 +461,12 @@ jobs:
             echo "⚠️ Helm charts directory not found, skipping API version fixes"
           fi
 
+      - name: Fix Solr exporter configuration
+        run: |
+          SOLR_EXPORTER_FILE="privacera-manager/output/kubernetes/helm/solr/templates/solr-exporter-deployment.yml"
+          sed -i 's|-b https://|-b http://|' "${SOLR_EXPORTER_FILE}"
+          sed -i '/- name: JAVA_OPTS/,+1d' "${SOLR_EXPORTER_FILE}"
+
       - name: Deploy to Kubernetes
         run: |
           echo "Running upgrade..."
