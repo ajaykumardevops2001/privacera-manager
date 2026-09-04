@@ -1,0 +1,29 @@
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerDeployment
+metadata:
+  name: privacera-manager-deploy
+  namespace: github-actions
+spec:
+  replicas: 1
+  template:
+    spec:
+      repository: ajaykumardevops2001/privacera-manager
+      labels:
+        - self-hosted
+        - k8s
+        - linux
+      resources:
+        limits:
+          memory: "2Gi"
+          cpu: "1000m"
+        requests:
+          memory: "1Gi"
+          cpu: "500m"
+      dockerdWithinRunnerContainer: false
+      image: summerwind/actions-runner:latest
+      env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-token
+              key: token

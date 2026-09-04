@@ -41,6 +41,7 @@ jobs:
       PRIVACERA_HUB_PASSWORD: ${{ secrets.PRIVACERA_HUB_PASSWORD }}
       ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
       GLOBAL_DEFAULT_SECRETS_KEYSTORE_PASSWORD: ${{ secrets.GLOBAL_DEFAULT_SECRETS_KEYSTORE_PASSWORD }}
+      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       # Configuration loaded from variables.env
       PRIVACERA_VERSION: ""
       PRIVACERA_HUB_SERVER: ""
@@ -177,6 +178,9 @@ jobs:
           if [ -z "$EKS_CLUSTER_NAME" ]; then
             MISSING_SECRETS="${MISSING_SECRETS} EKS_CLUSTER_NAME"
           fi
+          if [ -z "$SNOWFLAKE_PASSWORD" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} SNOWFLAKE_PASSWORD"
+          fi
           
           if [ -n "${MISSING_SECRETS}" ]; then
             echo "❌ ERROR: The following required secrets are not set:"
@@ -236,7 +240,7 @@ jobs:
         run: |
           echo "Installing additional dependencies..."
           sudo apt-get update
-          sudo apt-get install -y curl tar gzip wget openssl hostname sudo unzip python3 python3-pip
+          sudo apt-get install -y curl tar gzip wget openssl openssh-client hostname sudo unzip python3 python3-venv
           
           # Install AWS CLI for self-hosted runners
           echo "Installing AWS CLI..."
@@ -245,9 +249,13 @@ jobs:
           sudo ./aws/install
           aws --version
           
-          # Install Ansible
-          pip3 install ansible-core>=2.12.0
-          ansible --version
+          # using venv because system pip is blocked
+          ANSIBLE_VENV="${RUNNER_TEMP}/ansible-venv"
+          python3 -m venv "${ANSIBLE_VENV}"
+          "${ANSIBLE_VENV}/bin/python" -m pip install --upgrade pip
+          "${ANSIBLE_VENV}/bin/python" -m pip install "ansible-core>=2.12.0"
+          echo "${ANSIBLE_VENV}/bin" >> "${GITHUB_PATH}"
+          "${ANSIBLE_VENV}/bin/ansible" --version
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -311,14 +319,35 @@ jobs:
           echo "PRIVACERA_HUB_PASSWORD=\"${PRIVACERA_HUB_PASSWORD}\"" >> ${CONFIG_FILE}
           echo "ANSIBLE_VAULT_PASSWORD=\"${ANSIBLE_VAULT_PASSWORD}\"" >> ${CONFIG_FILE}
           echo "GLOBAL_DEFAULT_SECRETS_KEYSTORE_PASSWORD=\"${GLOBAL_DEFAULT_SECRETS_KEYSTORE_PASSWORD}\"" >> ${CONFIG_FILE}
+          echo "SNOWFLAKE_PASSWORD=\"${SNOWFLAKE_PASSWORD}\"" >> ${CONFIG_FILE}
           echo "AWS_REGION=\"${AWS_REGION}\"" >> ${CONFIG_FILE}
           echo "" >> ${CONFIG_FILE}
           echo "# Export all variables" >> ${CONFIG_FILE}
           echo "export DEPLOYMENT_ENV_TYPE DEPLOYMENT_ENV_NAME PRIV_MGR_IMAGE PRIV_MGR_PACKAGE" >> ${CONFIG_FILE}
           echo "export PRIVACERA_HUB_USER PRIVACERA_HUB_PASSWORD ANSIBLE_VAULT_PASSWORD" >> ${CONFIG_FILE}
-          echo "export GLOBAL_DEFAULT_SECRETS_KEYSTORE_PASSWORD AWS_REGION" >> ${CONFIG_FILE}
+          echo "export GLOBAL_DEFAULT_SECRETS_KEYSTORE_PASSWORD SNOWFLAKE_PASSWORD AWS_REGION" >> ${CONFIG_FILE}
 
           echo "Using configuration file: ${CONFIG_FILE}"
+
+      - name: Set Snowflake password
+        run: |
+          # do not hardcode password here
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config_file = Path("custom-vars/connectors/snowflake/test/vars.connector.snowflake.yml")
+          config = config_file.read_text()
+          placeholder = '"{SNOWFLAKE_PASSWORD}"'
+
+          if config.count(placeholder) != 2:
+              raise SystemExit("Snowflake password placeholders were not found")
+
+          config_file.write_text(
+              config.replace(placeholder, json.dumps(os.environ["SNOWFLAKE_PASSWORD"]))
+          )
+          PY
 
       - name: Run installation script
         run: |
@@ -456,6 +485,12 @@ jobs:
           else
             echo "⚠️ Helm charts directory not found, skipping API version fixes"
           fi
+
+      - name: Fix Solr exporter configuration
+        run: |
+          SOLR_EXPORTER_FILE="privacera-manager/output/kubernetes/helm/solr/templates/solr-exporter-deployment.yml"
+          sed -i 's|-b https://|-b http://|' "${SOLR_EXPORTER_FILE}"
+          sed -i '/- name: JAVA_OPTS/,+1d' "${SOLR_EXPORTER_FILE}"
 
       - name: Deploy to Kubernetes
         run: |
